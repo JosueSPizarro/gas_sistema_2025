@@ -1,0 +1,367 @@
+// prisma/schema.prisma
+
+// Define el cliente que Prisma generará. En este caso, el cliente de JavaScript.
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Configura la fuente de datos. Estamos usando PostgreSQL.
+// La URL de conexión se obtiene de la variable de entorno DATABASE_URL.
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===============================================
+// MODELOS PRINCIPALES
+// ===============================================
+
+// Modelo para los usuarios del sistema (empleados que usan el sistema).
+model Usuario {
+  id        Int      @id @default(autoincrement())
+  nombre    String
+  usuario   String   @unique
+  telefono  String?   @unique
+  password  String   @db.VarChar(255)
+  isMaster  Boolean  @default(false) // Para diferenciar a los administradores
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones
+  pages UserPage[]
+  salidasCreadas Salida[] @relation("CreadorSalida")
+  salidasLiquidadas Salida[] @relation("LiquidadorSalida")
+  ventas Venta[]
+  gastos Gasto[]
+  reabastecimientos Reabastecimiento[]
+}
+
+// Modelo para definir las páginas/rutas del sistema (permisos).
+model Page {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  path      String   @unique
+  users     UserPage[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Modelo de unión para la relación muchos a muchos entre Usuario y Page (permisos).
+model UserPage {
+  id     Int     @id @default(autoincrement())
+  userId Int
+  pageId Int
+  user   Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
+  page   Page    @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pageId])
+}
+
+// Modelo para los corredores (vendedores)
+model Corredor {
+  id            Int             @id @default(autoincrement())
+  nombre        String
+  dni           Int
+  telefono      String
+  activo        Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  
+  // Relaciones
+  salidas       Salida[]
+  stockCorredor StockCorredor[]
+}
+
+// Entidad para los diferentes productos
+model Producto {
+  id              Int             @id @default(autoincrement())
+  nombre          String
+  precioUnitario  Float
+  tipo            String          // "GAS", "AGUA", "VALVULA"
+  descripcion     String?
+  stockLleno      Int             @default(0) // Stock de unidades llenas en el almacén
+  stockMinimo     Int             @default(0)
+
+  // Relaciones
+  stockCorredor   StockCorredor[]
+  ventaProducto   VentaProducto[]
+  pendientes      Pendiente[]
+  comprasDetalle  CompraDetalle[]
+  reabastecimientoDetalles ReabastecimientoDetalle[]
+  liquidacionDetalles      LiquidacionDetalle[]
+  salidaDetalles           SalidaDetalle[]
+}
+
+// Entidad para el inventario inicial de un corredor
+model StockCorredor {
+  id              Int      @id @default(autoincrement())
+  corredorId      Int
+  corredor        Corredor @relation(fields: [corredorId], references: [id])
+  salidaId        Int
+  salida          Salida   @relation(fields: [salidaId], references: [id])
+  productoId      Int
+  producto        Producto @relation(fields: [productoId], references: [id])
+  // 💡 Modificación importante: Se separa el stock en lleno y vacío
+  cantidadLleno   Int   @default(0)
+  cantidadVacio   Int   @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@unique([corredorId, productoId, salidaId])
+}
+
+// Entidad para registrar las salidas de productos del almacén a un corredor
+model Salida {
+  id                      Int      @id @default(autoincrement())
+  corredorId              Int
+  usuarioId               Int?     // Usuario que creó la salida
+  usuario                 Usuario? @relation("CreadorSalida", fields: [usuarioId], references: [id])
+  usuarioLiquidadorId     Int?     // Usuario que liquidó la salida
+  usuarioLiquidador       Usuario? @relation("LiquidadorSalida", fields: [usuarioLiquidadorId], references: [id])
+  corredor                Corredor @relation(fields: [corredorId], references: [id])
+  fecha                   DateTime @default(now())
+  estado                  String   @default("ABIERTO") // "ABIERTO", "FINALIZADO"
+  totalVentas             Float    @default(0)
+  totalGastos             Float    @default(0)
+  totalDeudas             Float    @default(0)
+  totalEntregado          Float    @default(0) // Monto total entregado por el corredor
+  diferencia              Float    @default(0) // Diferencia entre el efectivo esperado y el entregado
+  diferenciaSaldada       Boolean  @default(false) // Indica si el faltante del corredor ha sido pagado
+  fechaDiferenciaSaldada  DateTime? // Fecha en que se saldó la diferencia
+  
+  // 💡 Nuevos campos para registrar el total de stock de la salida
+  totalLlenosSalida       Int      @default(0)
+  totalVaciosSalida       Int      @default(0)
+
+  // Relaciones
+  ventas                  Venta[]
+  gastos                  Gasto[]
+  deudas                  Deuda[]
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  stockCorredor           StockCorredor[]
+  reabastecimientos       Reabastecimiento[]
+  // ✨ NUEVA RELACIÓN: Para registrar la liquidación final de stock
+  liquidacionDetalles     LiquidacionDetalle[]
+  // ✨ NUEVA RELACIÓN: Para registrar el stock inicial de la salida
+  salidaDetalles          SalidaDetalle[]
+  // ✨ AÑADIR RELACIÓN: Para vincular con el historial de stock
+  historialStockGlobal HistorialStockGlobal[]
+}
+
+model Venta {
+  id               Int            @id @default(autoincrement())
+  salidaId         Int
+  usuarioId        Int?           // Usuario que registró la venta
+  usuario          Usuario?       @relation(fields: [usuarioId], references: [id])
+  salida           Salida         @relation(fields: [salidaId], references: [id])
+  clienteNombre    String         @default("Cliente al paso")
+  clienteDireccion String?
+  total            Float
+  pagoEfectivo     Float          @default(0)
+  pagoYapePlin     Float          @default(0) // Nuevo campo para Yape/Plin
+  pagoVale         Float          @default(0) // Monto total del descuento por vales
+  esPendiente      Boolean        @default(false)
+  montoPendiente   Float          @default(0)
+  fecha            DateTime       @default(now())
+
+  productos        VentaProducto[]
+
+  pendientes       Pendiente[]
+  deuda            Deuda?
+  // ✨ AÑADIR RELACIÓN: Para vincular con el historial de stock
+  historialStockGlobal HistorialStockGlobal[]
+}
+
+// Modelo para los productos dentro de cada venta
+model VentaProducto {
+  id              Int      @id @default(autoincrement())
+  ventaId         Int
+  venta           Venta    @relation(fields: [ventaId], references: [id])
+  productoId      Int
+  producto        Producto @relation(fields: [productoId], references: [id])
+  // 💡 Modificación importante: la cantidad total se calcula, los campos llenos y vacíos son el dato real
+  cantidad        Int
+  cantidadLleno   Int
+  cantidadVacio   Int
+  precioUnitario  Float
+  esVale          Boolean  @default(false)
+  cantidadVales     Int      @default(0) // ✨ CAMPO AÑADIDO
+  seVendioConEnvase Boolean @default(false) // ✨ NUEVO CAMPO
+}
+
+// Entidad para los gastos del corredor
+model Gasto {
+  id        Int      @id @default(autoincrement())
+  salidaId  Int
+  usuarioId Int?     // Usuario que registró el gasto
+  usuario   Usuario? @relation(fields: [usuarioId], references: [id])
+  salida    Salida   @relation(fields: [salidaId], references: [id])
+  concepto  String   // "Gasolina", "llanta", "Sencillo"
+  monto     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Entidad para las deudas de clientes
+model Deuda {
+  id            Int      @id @default(autoincrement())
+  salidaId      Int
+  salida        Salida   @relation(fields: [salidaId], references: [id])
+  ventaId       Int      @unique
+  venta         Venta    @relation(fields: [ventaId], references: [id])
+  nombreCliente String
+  monto         Float
+  pagado        Boolean  @default(false)
+  fechaPago     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// Entidad para registrar los eventos de reabastecimiento de una salida
+model Reabastecimiento {
+  id        Int      @id @default(autoincrement())
+  salidaId  Int
+  usuarioId Int?     // Usuario que registró el reabastecimiento
+  usuario   Usuario? @relation(fields: [usuarioId], references: [id])
+  salida    Salida   @relation(fields: [salidaId], references: [id])
+  fecha     DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  // ✨ NUEVA RELACIÓN: Para registrar el detalle del movimiento de stock
+  detalles  ReabastecimientoDetalle[]
+}
+
+// Entidad para los balones/bidones pendientes de clientes
+model Pendiente {
+  id           Int      @id @default(autoincrement())
+  ventaId      Int
+  venta        Venta    @relation(fields: [ventaId], references: [id])
+  productoId   Int
+  producto     Producto @relation(fields: [productoId], references: [id])
+  cantidad     Int // Cantidad de envases pendientes
+  entregado    Boolean  @default(false)
+  fechaEntrega DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ===============================================
+// MODELOS DE COMPRAS Y PROVEEDORES
+// ===============================================
+
+// Modelo para el stock global de envases vacíos
+model StockGlobal {
+  id           Int      @id @default(autoincrement())
+  tipoProducto String   @unique // "GAS", "AGUA" - Corresponde al campo 'tipo' de Producto
+  stockLleno   Int      @default(0) // Cantidad total de productos llenos de este tipo
+  stockVacio   Int      @default(0) // Cantidad total de envases vacíos de este tipo
+  stockTotal   Int      @default(0) // Cantidad total (Llenos + Vacíos)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Modelo para los proveedores
+model Proveedor {
+  id        Int      @id @default(autoincrement())
+  nombre    String
+  ruc       String?  @unique
+  telefono  String?
+  direccion String?
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones
+  compras   Compra[]
+}
+
+// Modelo para registrar las compras a proveedores
+model Compra {
+  id          Int       @id @default(autoincrement())
+  proveedorId Int
+  proveedor   Proveedor @relation(fields: [proveedorId], references: [id])
+  fecha       DateTime  @default(now())
+  total       Float
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relaciones
+  detalles    CompraDetalle[]
+}
+
+// Modelo de detalle para las compras
+model CompraDetalle {
+  id             Int      @id @default(autoincrement())
+  compraId       Int
+  compra         Compra   @relation(fields: [compraId], references: [id])
+  productoId     Int
+  producto       Producto @relation(fields: [productoId], references: [id])
+  cantidad       Int // Cantidad de productos llenos comprados
+  precioUnitario Float
+  subtotal       Float
+
+  @@unique([compraId, productoId])
+}
+
+// ===============================================
+// MODELOS DE LIQUIDACIÓN Y REABASTECIMIENTO
+// ===============================================
+
+model ReabastecimientoDetalle {
+  id                 Int              @id @default(autoincrement())
+  reabastecimientoId Int
+  reabastecimiento   Reabastecimiento @relation(fields: [reabastecimientoId], references: [id], onDelete: Cascade)
+  productoId         Int
+  producto           Producto         @relation(fields: [productoId], references: [id])
+  cantidadLlenoTomado   Int              @default(0) // Llenos que el corredor se lleva del almacén
+  cantidadLlenoDevuelto Int              @default(0) // Llenos que el corredor devuelve al almacén
+  cantidadVacioDevuelto Int              @default(0) // Vacíos que el corredor devuelve al almacén
+
+  @@unique([reabastecimientoId, productoId])
+}
+
+model LiquidacionDetalle {
+  id              Int      @id @default(autoincrement())
+  salidaId        Int
+  salida          Salida   @relation(fields: [salidaId], references: [id], onDelete: Cascade)
+  productoId      Int
+  producto        Producto @relation(fields: [productoId], references: [id])
+  llenosDevueltos Int      @default(0) // Llenos no vendidos que se devuelven al almacén
+  vaciosDevueltos Int      @default(0) // Vacíos (de ventas + iniciales) que se devuelven al almacén
+
+  @@unique([salidaId, productoId])
+}
+
+model SalidaDetalle {
+  id         Int      @id @default(autoincrement())
+  salidaId   Int
+  salida     Salida   @relation(fields: [salidaId], references: [id], onDelete: Cascade)
+  productoId Int
+  producto   Producto @relation(fields: [productoId], references: [id])
+  cantidad   Int // Cantidad de llenos asignados al inicio de la salida
+
+  @@unique([salidaId, productoId])
+}
+
+// ✨ MODELO MODIFICADO: Para registrar cada transacción que afecta el stock global
+model HistorialStockGlobal {
+  id           Int      @id @default(autoincrement())
+  fecha        DateTime @default(now())
+  tipoProducto String
+  stockLleno   Int
+  stockVacio   Int
+  stockTotal   Int
+  stockTotalAnterior Int // ✨ CAMPO AÑADIDO: Para saber cuánto había antes.
+  cambio       Int // La cantidad de cambio en stockTotal (+1, -1)
+  motivo       String // La razón del cambio, ej: VENTA_CON_ENVASE
+  detalles     String? // Detalles opcionales, ej: Venta ID: 123
+  
+  // ✨ CAMPOS Y RELACIONES AÑADIDOS PARA TRAZABILIDAD
+  ventaId            Int?
+  salidaId           Int?
+  venta              Venta?   @relation(fields: [ventaId], references: [id], onDelete: SetNull)
+  salida             Salida?  @relation(fields: [salidaId], references: [id], onDelete: SetNull)
+
+}

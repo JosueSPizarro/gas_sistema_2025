@@ -1,0 +1,32 @@
+/* Estilos para react-modal */
+
+.Modal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  margin-right: -50%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border-radius: 8px;
+  outline: none;
+  padding: 20px;
+  max-width: 600px; /* Ajusta según tus necesidades */
+  width: 90%; /* Ancho responsivo */
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  z-index: 1000; /* Asegura que esté por encima de otros elementos */
+}
+
+.Overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 999; /* Asegura que el overlay esté debajo del modal pero encima de todo lo demás */
+}
