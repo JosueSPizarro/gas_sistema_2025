@@ -1,6 +1,26 @@
+const { exec } = require('child_process');
 const express = require('express');
 const cors = require('cors'); // Importa cors
 require('dotenv').config();
+
+
+if (process.env.RUN_SEED === 'true') {
+    console.log('Iniciando el script de seed...');
+    exec('npm run seed', (error, stdout, stderr) => {
+        if (error) {
+            console.error(`Error al ejecutar el seed: ${error.message}`);
+            return;
+        }
+        if (stderr) {
+            console.error(`stderr: ${stderr}`);
+            return;
+        }
+        console.log(`stdout: ${stdout}`);
+        console.log('Script de seed finalizado con éxito.');
+        // Opcional: Salir del proceso después de que el seed se ejecute
+        // process.exit(0);
+    });
+}
 
 // ¡IMPORTACIÓN NECESARIA AQUÍ!
 const { protect } = require('./middleware/authMiddleware');
