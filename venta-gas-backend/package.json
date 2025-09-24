@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node src/app.js",
     "build": "prisma generate && prisma migrate deploy",
+    "seed": "node prisma/seed.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -36,7 +37,7 @@
     "usb": "^2.15.0"
   },
   "prisma": {
-    "seed": "node prisma/seed.js"
+    "seed": "node prisma\\seed.js"
   },
   "devDependencies": {
     "prisma": "^5.16.2"
